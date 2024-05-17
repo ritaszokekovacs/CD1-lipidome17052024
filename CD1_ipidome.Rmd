@@ -1,0 +1,1232 @@
+---
+title: "CD1 lipidome"
+author: "Rita Szoke-KOvacs"
+date: "2024-1-26"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+    toc_depth: 6
+  pdf_document:
+    toc: true
+    toc_depth: '6'
+---
+
+# Loading in packages
+
+```{r setup}
+# To install R CRAN packages use 
+# install.packages("nameofpackage")
+
+# To install Bioconductor packages use
+#BiocManager::install("SplicingFactory")
+# If biodoncutor is not installed run
+#install.packages("BiocManager")
+
+
+library(BiocManager)
+library(tidyverse) # data manipulation and generating plots with ggplot2
+library(ggfortify) # Package for PCA plots
+library(viridis) # Library containing colours for ggplot2
+library(ggVennDiagram) # Library for venn diagrams 
+library(corrr) # library for correlations for PCA
+library(ggcorrplot) # Visualizating correlations
+library(FactoMineR) # Library for PCA analysis
+library(factoextra) # Library for PCA visualization
+library(latexpdf) # Converts table-like objects to stand-alone PDF or PNG
+library(rempsyc) # For creating table
+library(SplicingFactory)
+```
+
+# Set working directory
+
+```{r}
+#dir <- "~/Documents/experimental_immunology/cd1/"
+#setwd(dir)
+```
+
+# Loading in data
+
+The following files are needed for the analysis: cd1_isotope_lipidome_molp_condensed.csv; cd1_isotope_lipidome_pmol_condensed.csv
+
+```{r load in data}
+# Reading in the folders from your current directory
+cd1_molp <- read_csv("~/R/CD1 isotypes/input/cleaned_data/cd1_isotope_lipidome_molp_condensed.csv")
+
+cd1_pmol <- read_csv("~/R/CD1 isotypes/input/cleaned_data/cd1_isotope_lipidome_pmol_condensed.csv")
+
+```
+#Create data frame
+```{r}
+# To compare across the different isotypes we need to manipulate the data frame so that all the molp values are in one column and the isotypes are in another column. 
+# pivot_longer extends the length of your data frame by merging columns together 
+molp_data <- cd1_molp %>%
+  # Here we are saying for every column that starts with CD1 put all the names of the column into a column called isotope and the values of each column into a column called molp
+  pivot_longer(cols = starts_with("CD1"), names_to = "Isotype", values_to = "molp") %>%
+  filter(!is.na(molp)) %>% # filtering out entries with an NA
+  mutate(Isotype = gsub("*_molp", "", Isotype),
+         totallength = as.numeric(totallength),
+         totaldb = as.factor(totaldb),
+         totaloh = as.factor(totaloh)) # Mutating the Isotype column values to remove the "_molp" at the end 
+  
+```
+
+### Group by and summarize
+
+```{r}
+molp_data$totallength<-as.numeric(molp_data$totallength)
+
+df <- molp_data %>%
+  group_by(Isotype) %>% # group_by converts data frame into a grouped data frame where operations done after are done so within these groupings
+  summarise(Mean_length = mean(totallength)) # For each different type of class we have calculated the mean total length
+df
+
+library(kableExtra)
+kable(table1, row.names=FALSE, align=c("l", "l", "r", "r", "r", "r"))
+
+```
+
+# Work with values in Molp (mol%)
+
+## Creating Barplots
+
+### Visualize Lipid Classes
+
+#### Percentage of lipids grouped by class
+
+```{r}
+# Percentage of lipids grouped by class within each isotype
+class_df <- molp_data %>% 
+  group_by(Isotype, class) %>% 
+  summarize(N = n()) %>% # getting the number of lipids of each class within each isotype
+  group_by(Isotype) %>%
+  mutate(Total = sum(N), # getting the total number of lipids within each isotype
+         Percentage = round((N/Total)*100, 2)) # Getting percentage of lipids in the class per isotope
+
+# PLOT --------------------------------------------------------------------------------------------------
+
+class_df %>%
+  ggplot(aes(x = class, y = Percentage, colour=class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6),
+          legend.position = "none") +
+  xlab("Lipid Class") +
+  ylab("% of lipids") +
+  # facet_wrap is used to plot a separate graph for each specified variable, in this case it's plotting a graph for each isotope
+  facet_wrap(~Isotype, scales = "free")
+```
+
+#### Molp percentage of lipid classes within each isotope
+
+We are summing the molp values instead
+
+```{r}
+# molp of samples with this class
+class_df <- molp_data %>%
+  group_by(Isotype, class) %>%
+  summarise(molp_percentage = sum(molp)) # getting the mole percentage of each class within each isotope
+
+class_df %>%
+  ggplot(aes(x = class, y = molp_percentage, colour = class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") +  
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6), 
+          legend.position = "none") +
+  ylab("mol % of sample") + 
+  xlab("Lipid Class") + 
+  facet_wrap(~Isotype, scales = "free")
+```
+### Visualize total chain lenght of lipids
+
+#### Visualize total chain lenght of lipids as percentage of total
+```{r}
+# profile of chain length in CD1 isotypes
+totallenth_df <- molp_data %>%
+  group_by(Isotype, totallength) %>%
+  summarise(totallength_percentage = sum(molp))
+
+totallenth_df$totallength_percentage<-as.factor(totallenth_df$totallength_percentage)
+totallenth_df$totallength<-as.factor(totallenth_df$totallength)
+
+totallenth_df %>%
+  ggplot(aes(x = totallength, y = totallength_percentage, colour = totallength, fill = totallength)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() +
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6, size = 25), 
+          legend.position = "none" ) +
+  theme(axis.text.y = element_text(size = 10))+
+  theme(axis.title.x = element_text(size = rel(1)))+
+  theme(axis.title.y = element_text(size = rel(1)))+
+  theme(text = element_text(size = 35))+
+  ylab("mol % of sample") + 
+  xlab("totallength of lipids") +  
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("Isotype_percentage_of_totallength.png", width=15, height=10)
+
+```
+#### Visualize total chain lenght of lipids as mol%
+```{r}
+molp_data$totallength<-as.factor(molp_data$totallength)
+
+molp_data %>%
+  ggplot(aes(x = totallength, y = molp, colour = totallength, fill = totallength)) + 
+  geom_bar(stat = "identity", position = "dodge") +  # define it is a barplot
+  theme_bw() + # make it a blank theme
+  scale_color_viridis(discrete = T, option = "D") + # overwrite ggplot automated colours
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6), # adjust the x axis angle 
+          legend.position = "none" ) +
+  theme(axis.text.y = element_text(size = 10))+
+  theme(axis.title.x = element_text(size = rel(1)))+
+  theme(axis.title.y = element_text(size = rel(1)))+
+  theme(text = element_text(size = 20))+
+  ylab("mol % of sample") + # change y label
+  xlab("Lipid classes") + # change x label 
+  facet_wrap(~Isotype, scales = "free") # plot separate plot for each isotope
+
+ggsave("Isotype_molp_of_totallength.png", width=15, height=10)
+```
+
+# Function for generating plots for each varialbe
+
+```{r functions}
+overall_percentage_plot <- function(input_data, variable_of_interest){
+  
+   # Plotting perecentage of lipids with variable of interest 
+   # INPUTS: input_data <- it will either be the cd1 molp data or the cd1_pmol data
+   #         variable_of_interest <- this is the variable we would like to visualize e.g. class, length, totaloh, structural category etc. T
+   #                                 This will need to be a string (i.e with quotation marks)
+   # OUTPUTS: bar plot of percentage of samples wihtin each isotope with a specific value of the variable of interest 
+  
+  # Percentage of samples with this class within each isotope
+  class_df <- input_data %>% 
+    group_by(Isotype, !!sym(variable_of_interest)) %>% # the !!sym() part just removes the quotation marks from the string, turning the string to an object
+    summarize(N = n()) %>%
+    group_by(Isotype) %>%
+    mutate(Total = sum(N), 
+           Percentage = round((N/Total)*100, 2)) 
+  
+  class_df %>%
+    ggplot(aes(x = !!sym(variable_of_interest), y = Percentage, colour=!!sym(variable_of_interest), fill = !!sym(variable_of_interest))) + 
+    geom_bar(stat = "identity", position = "dodge") + 
+    theme_bw() + 
+    scale_color_viridis(discrete = T, option = "D") + 
+    scale_fill_viridis(discrete = T, option = "D") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.6),
+            legend.position = "none") +
+    xlab("Lipids") +
+    ylab("% of lipid") +
+    facet_wrap(~Isotype, scales = "free")
+}
+
+
+# We will do the same for the sum of molp/pmol plot
+sum_of_values_plot <- function(input_data, variable_of_interest){
+  
+  # molp of samples with this class
+  class_df <- input_data %>%
+    group_by(Isotype, !!sym(variable_of_interest)) %>%
+    summarise(molp_percentage = sum(molp)) 
+  
+  class_df %>%
+    ggplot(aes(x = !!sym(variable_of_interest), y = molp_percentage, colour = !!sym(variable_of_interest), fill = !!sym(variable_of_interest))) + 
+    geom_bar(stat = "identity", position = "dodge") +  
+    theme_bw() + 
+    scale_color_viridis(discrete = T, option = "D") + 
+    scale_fill_viridis(discrete = T, option = "D") +
+    theme(axis.text.x = element_text(angle = 90, vjust = 0.6),
+            legend.position = "none") +
+    ylab("mol % of sample") + 
+    xlab("Lipids") + 
+    facet_wrap(~Isotype, scales = "free") 
+}
+```
+
+### Structural Category
+
+##### Percentage of structural categories within each isotype
+
+```{r}
+overall_percentage_plot(molp_data, "structuralcategory")
+ggsave("Isotype_structuralcat_molp.png", width=12, height=10)
+```
+
+#### Molp percentage of structural category within each isotope
+
+```{r}
+sum_of_values_plot(molp_data, "structuralcategory")
+ggsave("Isotype_structuralcat_percentage.png", width=12, height=10)
+```
+
+### Functional Category
+
+#### Percentage of functional categories within each isotype
+
+```{r}
+overall_percentage_plot(molp_data, "functionalcategory")
+ggsave("Isotype_functionalcat_percentage.png", width=12, height=10)
+```
+
+#### Molp percentage of functional categories within each isotope
+
+```{r}
+sum_of_values_plot(molp_data, "functionalcategory")
+ggsave("Isotype_functionalcat_molp.png", width=12, height=10)
+```
+
+### Total Length of lipids
+
+#### Percentage of samples with total length
+
+```{r}
+overall_percentage_plot(molp_data, "totallength")
+ggsave("Isotype_totallength_percentage.png", width=12, height=10)
+```
+
+#### Molp percentage of total length within each isotope
+
+```{r}
+sum_of_values_plot(molp_data, "totallength")
+ggsave("Isotype_totallength_molp.png", width=12, height=10)
+```
+
+### Total Double bonds
+
+#### Percentage of samples with number of double bonds 
+
+```{r}
+overall_percentage_plot(molp_data, "totaldb")
+ggsave("Isotype_db_percentage.png", width=12, height=10)
+```
+
+#### Molp percentage of number of double bonds within each isotope
+
+```{r}
+sum_of_values_plot(molp_data, "totaldb")
+```
+
+### Total OH
+
+#### Percentage of samples with number of OH in lipids
+
+```{r}
+overall_percentage_plot(molp_data, "totaloh")
+```
+
+#### Molp percentage of number of OH 
+
+```{r}
+sum_of_values_plot(molp_data, "totaloh")
+ggsave("Isotype_db_molp.png", width=12, height=10)
+```
+
+## Overlapping lipidome of isotypes
+
+Here we are making a venndiagram of overlapping lipidome between the different isotopes
+
+```{r table1, echo = FALSE, results='asis'}
+library(kableExtra)
+kable(table1, row.names=FALSE, align=c("l", "l", "r", "r", "r", "r"))
+# First thing to do is make a vector of the features for each isotype  
+ 
+cd1a <- molp_data %>%
+  filter(Isotype == "CD1a") %>%
+  pull(feature) # pull is like select but instead of returning the column as a data frame it returns the values of the column as a list
+
+cd1b <- molp_data %>%
+  filter(Isotype == "CD1b") %>%
+  pull(feature)
+
+cd1c <- molp_data %>%
+  filter(Isotype == "CD1c") %>%
+  pull(feature)
+
+cd1d <- molp_data %>%
+  filter(Isotype == "CD1d") %>%
+  pull(feature)
+
+# Combine each of these vectors into a single list 
+cd1_lipidome <- list("CD1A" = cd1a,
+                     "CD1B" = cd1b,
+                     "CD1C" = cd1c,
+                     "CD1D" = cd1d)
+
+
+# Using the ggVennDiagram package function to generate a venndiagram
+
+ggVennDiagram(cd1_lipidome, color = "black", lwd = 0.8, lty = 1, label = "count", set_size = 3) +
+   scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") # you can change the colours to whatever you would like 
+ggsave("Isotype_venndiagram.png", width=12, height=10)
+
+```
+### Find isotype-specific lipids 
+
+#### Create uniqe partitions of venndiagram
+
+```{r}
+# create uniqe partitions of venndiagram
+
+library(VennDiagram)
+d<-list(cd1a,cd1b,cd1c,cd1d)
+
+unique.partition<- VennDiagram::get.venn.partitions(d)
+colnames(unique.partition)<-
+  c("CD1a", "CD1b", "CD1c", "Cd1d", "set", "values", "count")
+
+#create data frames of unique partitions (unique lipids)
+
+cd1a_unique<-as.data.frame(unique.partition$values[15])
+cd1b_unique<-as.data.frame(unique.partition$values[14])
+cd1c_unique<-as.data.frame(unique.partition$values[12])
+cd1d_unique<-as.data.frame(unique.partition$values[8])
+CD1_shared<-as.data.frame(unique.partition$values[1])
+
+#create table of unique lipids
+library(plyr)
+uniqes_df<-rbind.fill(cd1a_unique,cd1b_unique,cd1c_unique,cd1d_unique)
+colnames(uniqes_df)[1]<-'CD1a'
+colnames(uniqes_df)[2]<-'CD1b'
+colnames(uniqes_df)[3]<-'CD1c'
+colnames(uniqes_df)[4]<-'CD1d'
+
+
+library(knitr)
+
+#print table
+library(gridExtra)
+pdf(file = "Isotype_unique.pdf", height=11, width=8.5)
+```
+
+#### Visualize CD1 unique lipid groups
+```{r}
+# Change column names
+colnames(uniqes_df)[1]<-'CD1a unique'
+colnames(uniqes_df)[2]<-'CD1b unique'
+colnames(uniqes_df)[3]<-'CD1c unique'
+colnames(uniqes_df)[4]<-'CD1d unique'
+
+unique_data <- uniqes_df %>%
+  # Here we are saying for every column that starts with CD1 put all the names of the column into a column called isotype and the values of each column into a column called molp
+  pivot_longer(cols = starts_with("CD1"), names_to = "Isotype", values_to = "feature") %>%
+  filter(!is.na(feature)) # filtering out entries with an NA
+
+# Merge data frames ro retrieve lipid specific columns  
+unique_cd1_molp<-merge(molp_data,unique_data,by="feature")
+# Change column name
+colnames(unique_cd1_molp)[8]<-'Isotype'
+
+library(plyr)
+
+# Create data frame with all isotype specific and shared lipids
+all_uniqes_df<-rbind.fill(cd1a_unique,cd1b_unique,cd1c_unique,cd1d_unique,CD1_shared)
+colnames(all_uniqes_df)[1]<-'CD1a'
+colnames(all_uniqes_df)[2]<-'CD1b'
+colnames(all_uniqes_df)[3]<-'CD1c'
+colnames(all_uniqes_df)[4]<-'CD1d'
+colnames(all_uniqes_df)[5]<-'CD1 shared'
+
+uniques_df <- all_uniqes_df %>%
+  # Here we are saying for every column that starts with CD1 put all the names of the column into a column called isotope and the values of each column into a column called molp
+  pivot_longer(cols = starts_with("CD1"), names_to = "Isotype", values_to = "feature") %>%
+  filter(!is.na(feature)) # filtering out entries with an NA
+  
+shared_cd1_molp<-merge(molp_data,uniques_df,by="feature")
+
+colnames(shared_cd1_molp)[8]<-'Isotypes'
+colnames(shared_cd1_molp)[10]<-'Isotype'
+```
+
+#### Plot isotype specific lipids and compare with shared lipids
+
+```{r}
+#Isotype specific lipids
+unique_cd1_molp %>%
+  ggplot(aes(x = class, y = molp, colour = class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6), 
+          legend.position = "none") +
+  theme(axis.text.y = element_text(size = 10))+
+  theme(axis.title.x = element_text(size = rel(1)))+
+  theme(axis.title.y = element_text(size = rel(1)))+
+  theme(text = element_text(size = 20))+
+  ylab("mol % of sample") + 
+  xlab("Lipid class") +
+  facet_wrap(~Isotype, scales = "free") # 
+
+ggsave("Isotype_uniques_class_.png", width=12, height=10, dpi = 300)
+
+#Isotype specific and shared lipids
+shared_cd1_molp %>%
+  ggplot(aes(x = class, y = molp, colour = class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6, size = 10),  
+          legend.position = "none") +
+  theme(axis.text.y = element_text(size = 15))+
+  theme(axis.title.x = element_text(size = rel(2)))+
+  theme(axis.title.y = element_text(size = rel(2)))+
+  theme(text = element_text(size = 30))+
+  ylab("mol % of sample") +
+  xlab("Lipid class") + 
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("Isotype_shared and unique_features.png", width=45, height=20)
+
+
+```
+
+
+
+## Adding HLAA2 background to Overlapping lipidome
+```{r}
+
+CD1a <- df_CD1 %>%
+  filter(name == "CD1a") %>%
+  pull(feature) # pull is sort of like select but instead of returning the column as a data frame it returns the values of the column as a list
+
+CD1b <- df_CD1 %>%
+  filter(name == "CD1b") %>%
+  pull(feature)
+
+CD1c <- df_CD1 %>%
+  filter(name == "CD1c") %>%
+  pull(feature)
+
+CD1d <- df_CD1 %>%
+  filter(name == "CD1d") %>%
+  pull(feature)
+
+HLAA2 <- df_CD1 %>%
+  filter(name == "HLA-A2") %>%
+  pull(feature)
+
+# Then we combine each of these vectors into a single list 
+cd1_hla_lipidome <- list("CD1A" = cd1a,
+                     "CD1B" = cd1b,
+                     "CD1C" = cd1c,
+                     "CD1D" = cd1d,
+                     "HLA-A2"=HLAA2)
+
+
+# This is function to generate a venn diagram using the ggVennDiagram package
+# If you are ever unsure of a function you can always do
+# ?NameOfPackage which will give a description of all the inputs and examples of how to use the function
+?ggVennDiagram
+ggVennDiagram(cd1_hla_lipidome, color = "black", lwd = 0.8, lty = 1, label = "count", set_size = 3) +
+   scale_fill_gradient(low = "#F4FAFE", high = "#4981BF") # you can change the colours to whatever you would like 
+ggsave("Isotype_venndiagram.png", width=12, height=10)
+
+
+
+```
+
+
+# PCA
+
+Here we are running principal component analysis to have some insight into how different the lipidomes for each isotope are
+
+```{r}
+# Select columns with only numerical values
+pca_dat <- molp_data %>%
+  select(feature, Isotype, molp) %>% 
+  # pivot wider makes the length of the data frame shorter and the width longer
+  pivot_wider(names_from = "Isotype", values_from = "molp") %>% 
+  column_to_rownames(var = "feature") %>% # setting the feature column to be row names
+  na.omit() # omitted all rows with an NA value
+            # Removing NA values has made the dataframe a LOT smaller (from 847 to 293)
+
+# Scale the data
+normalized_dat <- scale(pca_dat)
+```
+
+## Correlation
+
+A correlation plot is useful to see how similar/different the different isotypes are (Need to remember this is only using 1/3 of the lipids)
+
+```{r}
+# Then we can generate a correlation matrix
+corr_matrix <- cor(normalized_dat)
+ggcorrplot(corr_matrix)
+ggsave("Isotype_correlation matrix.png", width=10, height=10)
+```
+
+## Applying PCA
+
+Here we can now visualize the samples according to the first two principal components. From the results it appears that the lipidomes vary between each isotype although it is important to remember this is using a subset of the data so should be taken lightly. There might be a way to include values which are NA but this can also skew the data.
+
+```{r}
+data_pca <- princomp(corr_matrix)
+
+# This allows us to see how much the principal components contribute
+fviz_eig(data_pca) # From this we can see that the first principal component significantly contributes the most
+ggsave("Isotype_screeplot.png", width=12, height=10)
+# This plots the individuals 
+fviz_pca_ind(data_pca, col.ind = c("CD1a", "CD1b", "CD1c", "CD1d"))
+```
+# Calculate HLAA2 background
+```{r}
+#The HLAA2 data can be found in a separate file
+library(readr)
+immtac_lipidome_molp_condensed <- read_csv("input/cleaned_data/immtac_lipidome_molp_condensed.csv")#immtac_lipidome_molp_condensed.csv is in input folder!
+View(immtac_lipidome_molp_condensed)
+
+#merge data frames to have HLA-A2 background as well
+CD1_hla_df <- merge(cd1_molp,immtac_lipidome_molp_condensed)
+#merge columns of CD1 and HLA to "name"  
+CD1_hla<-CD1_hla_df %>%  pivot_longer(cols = c(contains("CD1"),contains("HLA")))
+#filter non relevant columns
+df_CD1 <- CD1_hla %>%
+  select(!c(Co1_molp,Co1TCR, Co2_molp, Co2TCR, Unb_molp))
+
+#calculate HLA-A2 background compared to the full lipidome 
+
+df_CD1 <- df_CD1 %>%
+  # Here we are saying for every column that starts with CD1 put all the names of the column into a column called isotope and the values of each column into a column called molp
+  filter(!is.na(value)) %>% # filtering out entries with an NA
+  mutate(name = gsub("*_molp", "", name),
+         totallength = as.factor(totallength),
+         totaldb = as.factor(totaldb),
+         totaloh = as.factor(totaloh))
+
+
+df_CD1$class<-as.factor(df_CD1$class)
+df_CD1$name<-as.factor(df_CD1$name)
+
+# Filter database with CD1 and HLAA2
+df_CD1_HLA <- CD1_hla_df %>%
+  select(!c(Co1_molp,Co1TCR, Co2_molp, Co2TCR, Unb_molp))
+
+#total number of lipids detected
+total_row<-nrow(df_CD1_HLA) 
+
+#filter HLA-A2
+total_HLA<-df_CD1_HLA%>%
+  select(feature,class,`HLA-A2`)
+#delete rows without values
+total_HLA<-na.omit(total_HLA)
+#number of lipids detected in HLA-A2
+number_hla<-nrow(total_HLA) 
+
+percent_hla<-(number_hla / total_row) * 100 #Percentage of lipids detected in HLAA2 of the total lipids detected
+
+```
+# Create CD1 isotypes dada frame with Expi293F cellular background
+```{r}
+#merge data frames to have Expi293 background as well (molp_Expi293 is separate file)
+library(readxl)
+molp_Expi293 <- read_excel("input/molp_Expi293.xlsx")
+
+CD1_hla_293_df <- merge(CD1_hla_df,molp_Expi293) #molp_Expi293F is in input folder as xlxs!
+
+
+#Create data frame and merge columns to Isotype and molp
+
+CD1_complete_df <- CD1_hla_293_df %>%
+  # Here we are saying for every column that starts with CD1 put all the names of the column into a column called isotope and the values of each column into a column called molp
+  pivot_longer(cols = c(contains("CD1"), contains("293F")), names_to = "Isotype", values_to = "molp") %>%
+  filter(!is.na(molp)) %>% # filtering out entries with an NA
+  mutate(Isotype = gsub("*_molp", "", Isotype),
+         totallength = as.factor(totallength),
+         totaldb = as.factor(totaldb),
+         totaloh = as.factor(totaloh))
+ 
+#filter non relevant columns
+CD1_hla_293_df <- CD1_hla_293_df %>%
+  select(!c(Co1_molp,Co2_molp,Co1TCR,Co2TCR,`HLA-A2`, Unb1, Unb2))
+
+#plot classes
+CD1_complete_df %>%
+  ggplot(aes(x = class, y = molp, colour = class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() +
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 30), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("Lipid classes") + 
+  theme(axis.title.x = element_text(size = rel(1.5)))+
+  theme(axis.title.y = element_text(size = rel(1.5)))+
+  theme(text = element_text(size = 40))+
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("CD1_293F.png", width=25, height=15)
+
+#plot Chain length
+CD1_complete_df %>%
+  ggplot(aes(x = totallength, y = molp, colour = totallength, fill = totallength)) + 
+  geom_bar(stat = "identity", position = "dodge") +  
+  theme_bw() +
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 12), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("C length") + 
+  theme(axis.title.x = element_text(size = rel(2)))+
+  theme(axis.title.y = element_text(size = rel(2)))+
+  theme(text = element_text(size = 20))+
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("CD1_complete_length.png", width=25, height=5)
+
+```
+
+
+## Heatmaps
+To narrow dowmn which lipids to include in the heatmaps we have selected based on abundance and length and those that have a maximum of only one data point missing. The first thing we do is calculate the z-score. This score tells us where abouts in the distribution the value sits (how many standard deviations away a value is from the mean). A positive z-score indicates the score is above the mean and a negative score indicates the score is below the mean 
+```{r}
+# Have first filtered for the most abundant classes and lengths
+
+heatmap_df <- cd1_molp %>%
+  filter(class %in% c("DAG", "PC", "PE", "PI", "PS", "GD1", "GD3"),
+         totallength %in% c(30, 32, 34, 36, 38, 40, 42))
+
+heatmap_df<- heatmap_df%>%
+  select(!c(structuralcategory,functionalcategory,totallength,totaldb,totaloh))
+
+heatmap_df <- heatmap_df[rowSums(is.na(heatmap_df)) == 1| rowSums(is.na(heatmap_df)) == 0, ] %>% # filtering for features which have one missing value or no missing values 
+  mutate_all(~replace(.,is.na(.), 0)) %>% # replacing NAs with 0
+  select(feature, CD1a_molp, CD1b_molp, CD1c_molp, CD1d_molp) %>%
+  rename("CD1a" = "CD1a_molp", # Renaming columns
+         "CD1b" = "CD1b_molp",
+         "CD1c" = "CD1c_molp",
+         "CD1d" = "CD1d_molp") %>%
+  mutate(class = gsub(" .*", "", feature)) # Creating a new column called class
+
+# Here I am selecting the first 25 PC features
+pc <- heatmap_df %>% 
+  filter(class == "PC") %>%
+  slice(1:25)
+
+# Here I am selecting the first 25 PE features
+pe <- heatmap_df %>%
+  filter(class == "PE") %>%
+  slice(1:25)
+
+
+heatmap_df <- heatmap_df %>%
+  filter(!class %in% c("PC", "PE")) %>%
+  bind_rows(pc) %>% # Binding new PC rows
+  bind_rows(pe) %>% # Binding new PE rows 
+  pivot_longer(!c(feature, class), names_to = "isotype", values_to = "pmol") %>%
+  group_by(feature) %>%
+  mutate(mean = mean(pmol),
+         sd = sd(pmol),
+         z_score = (pmol - mean)/sd) %>%
+  select(feature, isotype, z_score) %>%
+  mutate(class = gsub(" .*", "", feature))
+
+
+
+png(filename = "../output/cd1_isotope_heatmap_pmol.png",
+    units = "cm",
+    width = 10,
+    height = 40, 
+    res = 300)
+
+heatmap_df %>%
+  ggplot(aes(x = isotype, y = feature)) +
+  geom_point(aes(size = z_score, fill = class), alpha = 0.75, shape = 21) + # This adds in the bubbles 
+  scale_size_continuous(limits = c(-1.5, 1.5), range = c(0.1,5)) + # This determines the size and scale of the bubbles 
+  labs(x = "Isotype", y = "", size = "z-score") +
+  theme(axis.title.x = element_text(size = rel(2)))+
+  theme(legend.key = element_blank(),
+        axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 90, vjust = 0.3, hjust = 1),
+        axis.text.y = element_text(colour = "black", face = "bold", size = 11),
+        legend.text = element_text(size = 15, face = "bold", colour = "black"),
+        legend.title = element_text(size = 15, face = "bold"),
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2),
+        legend.position = "right")
+ 
+
+ggsave("CD1_bubble.png", width=5, height=20)
+
+
+```
+
+
+```{r}
+# Filtered for SM, GM3 
+
+heatmap_SM_GM3 <- cd1_molp %>%
+  filter(class %in% c("SM","GM3"))
+
+heatmap_df <- heatmap_df[rowSums(is.na(heatmap_df)) == 1| rowSums(is.na(heatmap_df)) == 0, ] %>% # filtering for features which have one missing value or no missing values 
+  mutate_all(~replace(.,is.na(.), 0)) %>% # replacing NAs with 0
+  select(feature, CD1a_pmol, CD1b_pmol, CD1c_pmol, CD1d_pmol) %>%
+  rename("CD1a" = "CD1a_pmol", # Renaming columns
+         "CD1b" = "CD1b_pmol",
+         "CD1c" = "CD1c_pmol",
+         "CD1d" = "CD1d_pmol") %>%
+  mutate(class = gsub(" .*", "", feature)) # Creating a new column called class
+
+# Here I am selecting the first 25 PC features
+pc <- heatmap_df %>% 
+  filter(class == "PC") %>%
+  slice(1:25)
+
+# Here I am selecting the first 25 PE features
+pe <- heatmap_df %>%
+  filter(class == "PE") %>%
+  slice(1:25)
+
+
+heatmap_df <- heatmap_df %>%
+  filter(!class %in% c("PC", "PE")) %>%
+  bind_rows(pc) %>% # Binding new PC rows
+  bind_rows(pe) %>% # Binding new PE rows 
+  pivot_longer(!c(feature, class), names_to = "isotope", values_to = "pmol") %>%
+  group_by(feature) %>%
+  mutate(mean = mean(pmol),
+         sd = sd(pmol),
+         z_score = (pmol - mean)/sd) %>%
+  select(feature, isotope, z_score) %>%
+  mutate(class = gsub(" .*", "", feature))
+
+png(filename = "../output/cd1_isotope_heatmap_pmol.png",
+    units = "cm",
+    width = 10,
+    height = 40, 
+    res = 300)
+
+heatmap_df %>%
+  ggplot(aes(x = isotope, y = feature)) +
+  geom_point(aes(size = z_score, fill = class), alpha = 0.75, shape = 21) + # This adds in the bubbles 
+  scale_size_continuous(limits = c(-1.5, 1.5), range = c(0.1,5)) + # This determines the size and scale of the bubbles 
+  labs(x = "Isotope", y = "", size = "z-score") +
+  theme(legend.key = element_blank(),
+        axis.text.x = element_text(colour = "black", size = 12, face = "bold", angle = 90, vjust = 0.3, hjust = 1),
+        axis.text.y = element_text(colour = "black", face = "bold", size = 11),
+        legend.text = element_text(size = 10, face = "bold", colour = "black"),
+        legend.title = element_text(size = 12, face = "bold"),
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2),
+        legend.position = "right")
+
+#group features by totallength
+heatmap2_df<-heatmap1_df%>%
+  group_by(feature, totallength)
+dev.off()
+```
+
+# Filter data frame to lipids present in all isoyples and Expi293F
+```{r}
+#select features that appear in all isotypes
+ 
+top293 <- CD1_hla_293_df[rowSums(is.na(CD1_hla_293_df)) == 0, ] # filtering for features which have no missing values 
+
+colnames(top293)[12]<-'Expi293'
+
+
+#reformat data frame to factor 
+top_293_molp <- top293 %>%
+  pivot_longer(cols = c(contains("CD1"), contains("293")), names_to = "Isotype", values_to = "molp") %>%
+  filter(!is.na(molp)) %>% # filtering out entries with an NA
+  mutate(Isotype = gsub("*_molp", "", Isotype))
+        totallength = as.numeric(totallength)
+        totaldb = as.factor(totaldb)
+        totaloh = as.factor(totaloh)
+        
+top_293_molp <- top_293_molp %>%
+        mutate(totallength = as.factor(totallength),
+        totaldb = as.factor(totaldb),
+        totaloh = as.factor(totaloh))
+ 
+```
+##plot
+```{r}
+
+#plot compare classes
+top_293_molp %>%
+  ggplot(aes(x = class, y = molp, colour = class, fill = class)) + 
+  geom_bar(stat = "identity", position = "dodge") +  
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 20),
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("Lipid class") + 
+  theme(axis.title.x = element_text(size = rel(1)))+
+  theme(axis.title.y = element_text(size = rel(1)))+
+  theme(text = element_text(size = 30))+
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("CD1_top293_class and dpi.png", width=25, height=10, dpi = 300)
+
+#plot compare chain length
+top_293_molp %>%
+  ggplot(aes(x = totallength, y = molp, colour = totallength, fill = totallength)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  theme_bw() +
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 20), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("Lipid totallength") + 
+  theme(axis.title.x = element_text(size = rel(1)))+
+  theme(axis.title.y = element_text(size = rel(1)))+
+  theme(text = element_text(size = 30))+
+  facet_wrap(~Isotype, scales = "free") 
+
+ggsave("CD1_top293_totallength and dpi.png", width=25, height=10, dpi = 300)
+
+```
+
+#heat map with top293 lipids
+```{r}
+# Have first filtered for the most abundant PC
+
+top_293_heatmap_PC <- top_670_molp %>%
+  filter(class %in% c("PC", "PC O-"))
+
+top_293_heatmap_PC<- top_293_heatmap_PC%>%
+  select(!c(structuralcategory,functionalcategory,totallength,totaldb,totaloh))
+
+top_293_heatmap_PC <- top_293_heatmap_PC %>%
+  group_by(feature) %>%
+  mutate(mean = mean(molp),
+         sd = sd(molp),
+         z_score = (molp - mean)/sd) %>%
+  select(feature, Isotype, z_score,class)
+
+range(top_293_heatmap_PC$z_score)
+
+top_293_heatmap_PC %>%
+  ggplot(aes(x = Isotype, y = feature)) +
+  geom_point(aes(size = z_score, fill = class), alpha = 0.75, shape = 21) + # This adds in the bubbles 
+  scale_size_continuous(limits = c(-1.8, 1.8), range = c(0.1,5)) + # This determines the size and scale of the bubbles
+  labs(x = "Isotype", y = "", size = "z-score") +
+  theme(axis.title.x = element_text(size = rel(2)))+
+  theme(legend.key = element_blank())+
+        axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 90, vjust = 0.3, hjust = 1)+
+        axis.text.y = element_text(colour = "black", face = "bold", size = 11)+
+        legend.text = element_text(size = 15, face = "bold", colour = "black")+
+        legend.title = element_text(size = 15, face = "bold")+
+        guides(size=guide_legend("z-score")+
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2),
+        legend.position = "right")
+ 
+
+ggsave("CD1_293-PC_bubble1.png", width=5, height=20, dpi = 300)
+
+```
+#Heatmap of SM and GM3
+```{r}
+# Have first filtered for the most abundant SM and GM3
+
+top_293_heatmap_SM_GM3 <- top_293_molp %>%
+  filter(class %in% c("SM", "GM3"))
+
+top_293_heatmap_SM_GM3<- top_293_heatmap_SM_GM3%>%
+  select(!c(structuralcategory,functionalcategory,totaldb,totaloh))
+
+
+top_293_heatmap_SM_GM3 <- top_670_heatmap_SM_GM3 %>%
+  group_by(feature) %>%
+  mutate(mean = mean(molp),
+         sd = sd(molp),
+         z_score = (molp - mean)/sd) %>%
+  select(feature, Isotype, z_score,class, totallength)
+
+range(top_293_heatmap_SM_GM3$z_score)
+
+top_293_heatmap_SM_GM3 %>%
+  ggplot(aes(x = Isotype, y = feature)) +
+  geom_point(aes(size = z_score, fill = class), alpha = 0.75, shape = 21) + # This adds in the bubbles 
+  scale_size_continuous(limits = c(-1.5, 1.8), range = c(0.05,5)) + # This determines the size and scale of the bubbles
+  labs(x = "Isotype", y = "", size = "z-score") +
+  theme(axis.title.x = element_text(size = rel(2)))+
+  theme(legend.key = element_blank(),
+        axis.text.x = element_text(colour = "black", size = 15, face = "bold", angle = 90, vjust = 0.3, hjust = 1),
+        axis.text.y = element_text(colour = "black", face = "bold", size = 11),
+        legend.text = element_text(size = 15, face = "bold", colour = "black"),
+        legend.title = element_text(size = 15, face = "bold"),
+        panel.background = element_blank(), panel.border = element_rect(colour = "black", fill = NA, size = 1.2),
+        legend.position = "right")
+ 
+
+ggsave("CD1_293-SM_GM3_bubble.png", width=5, height=4, dpi = 300)
+```
+
+# Overcaptured lipids
+```{r}
+CD1_293F_Cer <- CD1_293F %>%
+  filter(class %in% c("Cer"))  
+
+CD1_293F_Cer %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 0.115, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("Cer") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  #theme(axis.title.x = element_text(face="bold")+
+  theme(axis.title.y = element_text(size = rel(3)))
+
+ggsave("Overcapture_CD1c_293F_Cer.png", width=12, height=12, dpi = 300)
+
+CD1_293F_DAG <- CD1_293F %>%
+  filter(class %in% c("DAG"))  
+
+CD1_293F_DAG %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 0.45, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("DAG") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+
+ggsave("Overcapture_CD1c_293F_DAG.png", width=12, height=12, dpi = 300)
+
+CD1_293F_PC <- CD1_293F %>%
+  filter(class %in% c("PC"))  
+
+CD1_293F_PC %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 10.06, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40),
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40),  
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PC") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+
+ggsave("Overcapture_CD1c_293F_PC.png", width=12, height=12, dpi = 300)
+
+
+CD1_293F_PE <- CD1_293F %>%
+  filter(class %in% c("PE"))  
+
+CD1_293F_PE %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 5.158, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") +
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PE") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_PE.png", width=12, height=12, dpi = 300)
+
+CD1_293F_PC_O <- CD1_293F %>%
+  filter(class %in% c("PC O-"))  
+
+CD1_293F_PC_O %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") + 
+  geom_abline(intercept = 0.43, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40),
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40),  
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PC O-") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+
+ggsave("Overcapture_CD1c_293F_PC_O.png", width=12, height=12, dpi = 300)
+
+CD1_293F_PE_O <- CD1_293F %>%
+  filter(class %in% c("PE O-"))  
+
+CD1_293F_PE_O %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) +
+  geom_bar(stat = "identity", position = "dodge") + 
+  geom_abline(intercept = 3.3, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40),  
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PE O-") +
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+
+ggsave("Overcapture_CD1c_293F_PE_O.png", width=12, height=12, dpi = 300)
+
+CD1_293F_SM <- CD1_293F %>%
+  filter(class %in% c("SM"))  
+
+CD1_293F_SM %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 2.14, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() +
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), # adjust the x axis angle 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("SM") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_SM.png", width=12, height=12, dpi = 300)
+
+CD1_293F_HexCer <- CD1_293F %>%
+  filter(class %in% c("HexCer"))  
+
+CD1_293F_HexCer %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 0.253, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("HexCer") + 
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_HexCer.png", width=12, height=12, dpi = 300)
+
+
+CD1_293F_GM3 <- CD1_293F %>%
+  filter(class %in% c("GM3"))  
+
+CD1_293F_GM3 %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 0.18, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("GM3") +  
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_GM3.png", width=12, height=12, dpi = 300)
+
+CD1_293F_PI <- CD1_293F %>%
+  filter(class %in% c("PI"))  
+
+CD1_293F_PI %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 1.45, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.6,hjust = 0.6, size = 20), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40),  
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PI") +  
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_PI.png", width=12, height=12, dpi = 300)
+
+CD1_293F_PS <- CD1_293F %>%
+  filter(class %in% c("PS"))  
+
+CD1_293F_PS %>%
+  group_by(Isotype) %>%
+  ggplot(aes(x = Isotype, y = molp, colour = Isotype, fill = Isotype)) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_abline(intercept = 2.3, slope = 0, linetype = "longdash", linewidth=2)+
+  theme_bw() + 
+  scale_color_viridis(discrete = T, option = "D") + 
+  scale_fill_viridis(discrete = T, option = "D") +
+  theme(axis.text.x = element_text( vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+   theme(axis.text.y = element_text(vjust = 0.6,hjust = 0.6, size = 40), 
+          legend.position = "none") +
+  theme(panel.spacing = unit(1, "lines"))+
+  ylab("mol % of sample") + 
+  xlab("PS") +
+  theme(axis.title.x = element_text(size = rel(4)))+
+  theme(axis.title.y = element_text(size = rel(3)))
+  
+ggsave("Overcapture_CD1c_293F_PS.png", width=12, height=12, dpi = 300)
+
+
+```
+
+
+
